@@ -1,0 +1,253 @@
+---
+title: "Michele Marinucci, Project A"
+output: html_notebook
+---
+
+## Question 1
+
+Read an interesting, related article for some context: https://www.nytimes.com/2011/09/12/business/economy/stock-markets-sharp-swings-grow-more-frequent.html
+
+```{r}
+#data loading and pre-processing
+rm(list=ls())
+library(quantmod)
+library(dplyr)
+library(zoo)
+library(xts)
+df=read.csv("SPX.csv",stringsAsFactors = F,na.strings = "#N/A N/A")
+df=df %>% rename(open=PX_OPEN,high=PX_HIGH,low=PX_LOW,close=PX_LAST) #rename columns
+df$Date=as.Date(df$Date, format="%m/%d/%Y") #set as dates
+df = df[2:nrow(df),]
+head(df,4)
+```
+
+### Point a
+
+Data range obtained goes from 01/03/1928 to 09/01/2020.The data set seems to be complete in terms of dates, but 281 of these dates are without data. 
+
+```{r}
+#count NA per column
+na_count=data.frame(sapply(df, function(x) sum(is.na(x))))
+na_count %>% rename(NA_count=1)
+#see range of dates
+range(df$Date)
+#see non-weekend date gaps
+head(df$Date[(!(diff(df$Date)==1|diff(df$Date)==3))],4)
+sum(!(diff(df$Date)==1|diff(df$Date)==3))
+
+```
+
+
+### Point b
+
+```{r}
+#data integrity checks
+sapply(df, function(x) sum(x <= 0)) #check: no negative or zero values
+length(which(df$df.low>df$df.high))#check: Low > High
+length(which(df$df.low==df$df.high))#check: Low == High
+dim(df[duplicated(na.omit(df[c(-1)])),])[1] #check: no duplicates
+sum(df$high != apply(df, 1, max)) #check: high is highest
+sum(df$low != apply(df, 1, min)) #check: low is lowest
+
+diff_close = diff(df$close)
+length(diff_close[which(diff(df$close) == 0)]) #count dates with same close price
+```
+
+### Point c
+
+```{r}
+#build probability table
+probTable=data.frame(matrix(c(
+  sum(df$high==df$close,na.rm = T)/length(df$high),
+  sum(df$high==df$open,na.rm = T)/length(df$high),
+  sum(df$low==df$close,na.rm = T)/length(df$low),
+  sum(df$low==df$open,na.rm = T)/length(df$low)
+),byrow=T,nrow=2))
+rownames(probTable)=c('high','low');colnames(probTable)=c('close','open')
+write.csv(probTable,'./results/probTable.csv')
+probTable
+
+```
+
+```{r}
+#look around date in which intraday data became more detailed
+df[(which(df$Date == '1982-04-21') - 4) : (which(df$Date == '1982-04-21') + 4),]
+#reason why cant be used for random walk test
+```
+
+
+
+### Point d
+
+```{r}
+#isolate period of interest
+period=df[which((df$Date>=as.Date('1980-01-01'))&(df$Date<=as.Date('2011-08-30'))),]
+#find the top 20 intraday ranges
+require(dplyr)
+top_20_intraday<-period %>% 
+        mutate(intraday_range=(high-low)/low)%>%
+        arrange(desc(intraday_range))%>%
+        slice(1:20)
+
+#show
+top_20_intraday[,c(1,8)]
+write.csv(top_20_intraday[,c(1,8)],'./results/top_20_intraday.csv')
+#how many during final 3 years?
+sum(top_20_intraday$Date>as.Date('2008-09-01'))
+```
+
+### Point e
+
+```{r}
+#overnight returns 
+top_20_overnight<-period%>%
+  mutate(overnight_return=(open-shift(close))/shift(close))%>%
+  arrange(desc(overnight_return))%>%
+  slice(1:20)%>% 
+  arrange(desc(Date))
+
+bottom_20_overnight<-period%>%
+  mutate(overnight_return=(open-shift(close))/shift(close))%>%
+  arrange(overnight_return)%>%
+  slice(1:20)%>% 
+  arrange(desc(Date))
+
+#show
+top_20_overnight[,c(1,8)]
+write.csv(top_20_overnight[,c(1,8)],"./results/top_20_overnight.csv")
+
+bottom_20_overnight[,c(1,8)]
+write.csv(bottom_20_overnight[,c(1,8)],"./results/bottom_20_overnight.csv")
+
+
+#1980-1982 period has the most instances in both cases; the reason is perhaps that there was no intraday before 1982 (out time period starts in 1980)
+
+```
+
+### Point f
+
+```{r}
+## f
+require(zoo)
+top_20_jumps<-period%>%
+  mutate(log_r=log(close/shift(close)))%>%
+  mutate(vol_3months=shift(rollapply(log_r,width = 63, FUN = sd, na.rm = TRUE,fill=NA,align='right')))%>%
+  #Note: rollapply computes rolling volatility; the shift is to make it "prior day's close"
+  mutate(jump=abs(log_r/vol_3months))%>%
+  arrange(desc(jump))%>%
+  slice(1:20)
+
+#show
+top_20_jumps[,c(1,8:10)]
+write.csv(top_20_jumps[,c(1,8:10)],"./results/jumps.csv")
+
+#how many during final 3 years?
+sum(top_20_jumps$Date>as.Date('2008-09-01'))
+```
+
+## Question 2
+```{r}
+#clean up environment
+rm(list=setdiff(ls(), "df"))
+
+#Blomberg data
+date_wrong<-as.Date("1982-10-6")
+bbg<-df[(df$Date>date_wrong-3)&(df$Date<date_wrong+3),]
+bbg<-as.xts(bbg,order.by = bbg$Date)[,2:ncol(bbg)]
+
+#Yahoo data
+require(quantmod)
+loadSymbols(Symbols = "^GSPC",src = "yahoo",from = date_wrong-3,to = date_wrong+3)
+colnames(GSPC)[1:4]=c('open','high','low','close')
+
+#compare
+bbg['1982106',1:4]
+GSPC['1982106',1:4]
+
+#open and low are the same, but it seems that Yahoo missed a high price at the end of the day that Bloomberg did not miss. That seems to have been the discrepancy.
+
+```
+
+## Question 3
+
+```{r}
+#clean environment and load data
+rm(list = ls())
+df<-read.csv("DJIA.csv", stringsAsFactors = F)
+require(quantmod)
+
+#get data from yahoo
+loadSymbols('^DJI', from=as.Date('2020-08-15'),to=as.Date('2020-09-15'))
+loadSymbols('CRM', from=as.Date('2020-08-15'),to=as.Date('2020-09-15'))
+loadSymbols('HON', from=as.Date('2020-08-15'),to=as.Date('2020-09-15'))
+loadSymbols('AMGN', from=as.Date('2020-08-15'),to=as.Date('2020-09-15'))
+
+#get specific day
+index_value<-as.numeric(DJI['20200824','DJI.Close'])
+amgen<-AMGN['20200824','AMGN.Close']
+salesforce<-CRM['20200824','CRM.Close']
+
+#create new rows for df
+honeywell<-data.frame(matrix(c('HON','Honeywell',NA,1, HON['20200824','HON.Close']),nrow=1))
+salesforce<-data.frame(matrix(c('CRM','Salesforce',NA,1, CRM['20200824','CRM.Close']),nrow=1))
+amgen<-data.frame(matrix(c('AMGN','Amgen',NA,1, HON['20200824','HON.Close']),nrow=1))
+colnames(honeywell)<-colnames(df)
+colnames(amgen)<-colnames(df)
+colnames(salesforce)<-colnames(df)
+
+#create new df: drop pfizer, exxon and Raytheon; add salesforce, amgen, honeywell
+new_df<-df[c(-22,-27,-30),]
+new_df<-rbind(new_df,amgen,honeywell,salesforce)
+for (i in 3:5){new_df[,i]<-as.numeric(new_df[,i])}
+rownames(new_df)<-1:nrow(new_df)
+str(new_df)
+
+#clean environment
+rm(CRM,HON,AMGN,DJI,honeywell,salesforce,amgen)
+
+```
+
+### Point a
+
+```{r}
+#new divisor
+market_value<-sum(new_df$Price)
+divisor<-market_value/index_value
+print(paste('New divisor is:',round(divisor,3)))
+```
+
+### Point b
+```{r}
+#portion represented by dropped companies
+portion<-sum(df$Price[c(22,27,30)])/sum(df$Price)
+print(paste0("The dropped companies were ",round(portion*100,2),"% of the index"))
+```
+
+
+### Point c
+```{r}
+#significance of remaining companies before and after
+w_after<-sum(new_df$Price[c(-22,-27,-30)])/sum(new_df$Price)
+w_before<-1-portion
+print(paste0("w_after is ",round(w_after*100,2),"%, while w_before was ",round(w_before*100,2),'%'))
+```
+
+### Point d
+Same exact calculation as above; however, since Berkshire's stock price is in the magnitude of houndreds of thousands and the dow is not market cap weighted, the dow would've basically become close to 100% berkshire. 
+
+### Point e
+
+They were basically a consequence of Apple's stock split!
+
+
+
+
+
+
+
+
+
+
+
+
+
