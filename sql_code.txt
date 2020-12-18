@@ -1,0 +1,14 @@
+
+
+---------------------FIRST QUERY----------------------
+
+SELECT fundamental.Date, link_table.permno, link_table.name, fundamental.Quarter, fundamental.eps, [debt]/[assets] AS leverage, [cfo]/[income] AS earnings_quality
+FROM link_table INNER JOIN fundamental ON link_table.gvkey = fundamental.gvkey
+ORDER BY fundamental.Date, link_table.permno;
+
+
+---------------------SECOND QUERY---------------------
+
+SELECT prices.Date, prices.permno, (prices.bid+prices.ask)/2 AS price, fundamental_mod.Quarter, price/fundamental_mod.eps AS pe, fundamental_mod.leverage, fundamental_mod.earnings_quality
+FROM prices LEFT JOIN fundamental_mod ON (prices.permno = fundamental_mod.permno) AND (prices.date = fundamental_mod.date)
+ORDER BY prices.Date, prices.permno;
